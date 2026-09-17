@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Founding of Millbrook (canvas, two columns)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<script src="auth-guard.js"></script>
+</head>
+<body>
+<nav class="top-links"><a href="index.html">Fixture site index</a></nav>
+
+<header class="page-header">
+  <h1>The Founding of Millbrook</h1>
+  <p><em>OCR trap: same passage as passage.html, rendered on a &lt;canvas&gt;
+     as two newspaper-style columns. Naive OCR reads straight across both
+     columns and interleaves them into nonsense, without lowering its
+     confidence score. This is the case BUILD_SPEC.md section 6.4.1 calls
+     out by name, and it must trigger escalation to the vision engine.</em></p>
+</header>
+
+<main class="two-col-frame">
+  <canvas id="passageCanvas" class="passage-canvas" aria-label="Passage text rendered as an image in two columns; see the plain-DOM version at passage.html for the same text."></canvas>
+</main>
+
+<footer class="page-footer">
+  <a id="nextBtn" class="btn" href="questions.html?set=1&amp;round=1">Next</a>
+</footer>
+
+<script src="passage-data.js"></script>
+<script src="canvas-passage.js"></script>
+<script src="round-nav.js"></script>
+<script>
+(function () {
+  "use strict";
+  var canvas = document.getElementById("passageCanvas");
+  var width = Math.min(1000, Math.max(600, window.innerWidth - 40));
+  SparkCanvasPassage.renderPassageTwoColumns(canvas, {
+    paragraphs: PASSAGE_PARAGRAPHS,
+    title: PASSAGE_TITLE,
+    width: width,
+    fontSize: 17,
+    fontFamily: "sans-serif"
+  });
+
+  var round = getRound();
+  document.getElementById("nextBtn").href = questionsHrefForRound(round);
+})();
+</script>
+</body>
+</html>
