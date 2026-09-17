@@ -25,6 +25,13 @@ gemini = ["google-genai>=0.3"]
 anthropic = ["anthropic>=0.30"]
 openai = ["openai>=1.35"]
 ollama = ["httpx>=0.27"]
+# NOTE: winsdk has not been updated since 2023-08 (v1.0.0b10) — the pywinrt
+# project's actively-maintained bindings moved to modular winrt-* packages
+# instead (e.g. winrt-Windows.Media.Ocr). See
+# src/spark/perception/ocr/WINDOWS_OCR_NOTES.md for the full finding. Verify
+# winsdk still installs/works on a real target machine before shipping; the
+# WinRT namespace/API used in windows.py is identical either way, so only
+# this pin (and windows.py's import lines) would need to change.
 windows-ocr = ["winsdk>=1.0.0b10; platform_system == 'Windows'"]
 tesseract = ["pytesseract>=0.3.10"]
 dev = [
