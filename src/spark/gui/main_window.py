@@ -79,18 +79,22 @@ class OrchestratorWorker(QObject):
         from spark.browser.launcher import ChromeLauncher
         from spark.browser.session import BrowserSession
         from spark.reasoning.provider import build_provider
+        from spark.runlog.recorder import RunRecorder, purge_old_runs
 
         launcher = ChromeLauncher(self.settings.chrome)
         launch_result = await launcher.ensure_running()
         session = await BrowserSession.attach(launch_result.cdp_url, prefer_url_substring=self.task.start_url)
         try:
             provider = build_provider(self.settings.active_provider, self.settings.provider_settings())
+            recorder = RunRecorder(task=self.task, settings=self.settings)
             self._orchestrator = Orchestrator(
-                task=self.task, settings=self.settings, provider=provider, session=session
+                task=self.task, settings=self.settings, provider=provider, session=session, recorder=recorder
             )
             if self._cancel_requested:
                 self._orchestrator.cancel()
             result = await self._orchestrator.run()
+            log.info("Run artefacts: %s", recorder.run_dir)
+            purge_old_runs(self.settings.retention)
             self.finished.emit(result.outcome.value, result.message)
         finally:
             await session.close()

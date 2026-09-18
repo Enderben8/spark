@@ -27,6 +27,7 @@ from spark.reasoning.budget import BudgetTrackingProvider
 from spark.reasoning.prompts import build_classify_page_prompt, build_observe_decide_prompt
 from spark.reasoning.provider import LLMProvider, Message, MessageRole
 from spark.reasoning.schemas import Action, ActionType, PageClassification
+from spark.runlog.recorder import RunRecorder
 from spark.scripts.model import Task
 from spark.skills.answering import answer_question_group, click_and_verify_answer, detect_question_groups
 from spark.skills.scoring import ScoreComparison, extract_score, no_improvement_streak
@@ -78,11 +79,13 @@ class Orchestrator:
         settings: AppSettings,
         provider: LLMProvider,
         session: BrowserSession,
+        recorder: RunRecorder | None = None,
     ):
         self.task = task
         self.settings = settings
         self.provider = BudgetTrackingProvider(provider)
         self.session = session
+        self.recorder = recorder
         self.memory = RunMemory()
         self.recent_actions: list[str] = []
         self._start_time = time.monotonic()
@@ -123,6 +126,24 @@ class Orchestrator:
         )
 
     async def run(self) -> RunResult:
+        """Public entry point. Delegates to :meth:`_run_loop` for the actual
+        perceive→classify→act loop, then — unconditionally, however the
+        loop exited — finalizes the run recorder exactly once (BUILD_SPEC
+        §13), rather than touching every one of the loop's many early-return
+        sites individually.
+        """
+        result = await self._run_loop()
+        if self.recorder is not None:
+            self.recorder.finalize(
+                outcome=result.outcome.value,
+                message=result.message,
+                iterations=result.iterations,
+                steps=result.steps,
+                memory=self.memory,
+            )
+        return result
+
+    async def _run_loop(self) -> RunResult:
         await self.session.goto(self.task.start_url)
 
         iteration = 0
@@ -209,6 +230,22 @@ class Orchestrator:
 
             page_type = await self._classify(view)
             log.info("Step %d: classified as %s (%s)", step, page_type, view.url)
+
+            screenshot_path = None
+            if self.recorder is not None and self.recorder.should_screenshot(page_type):
+                try:
+                    png_bytes = await self.session.screenshot(full_page=False)
+                    screenshot_path = self.recorder.save_screenshot(png_bytes, page_type)
+                except Exception as exc:
+                    log.warning("Failed to capture a screenshot for the run log: %s", exc)
+            if self.recorder is not None:
+                self.recorder.record_step(
+                    url=view.url,
+                    page_type=page_type,
+                    text_source=view.text_source,
+                    ocr_used=view.ocr_used,
+                    screenshot=screenshot_path,
+                )
 
             if page_type == "reading":
                 self.memory.remember_passage(step_index=step, url=view.url, text=view.text, source=view.text_source)

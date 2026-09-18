@@ -22,16 +22,35 @@ from spark.logsetup import configure_logging, get_logger
 log = get_logger("main")
 
 
-def _cmd_run(args: argparse.Namespace) -> int:
+async def _run_task_async(task_path: Path) -> int:
+    from spark.browser.launcher import ChromeLauncher
+    from spark.browser.session import BrowserSession
     from spark.orchestrator import Orchestrator, RunOutcome
+    from spark.reasoning.provider import build_provider
+    from spark.runlog.recorder import RunRecorder, purge_old_runs
     from spark.scripts.model import load_task
 
-    task = load_task(Path(args.task))
+    task = load_task(task_path)
     settings = load_settings()
-    orchestrator = Orchestrator(task=task, settings=settings)
-    result = asyncio.run(orchestrator.run())
-    log.info("Run finished: %s", result.outcome)
-    return 0 if result.outcome == RunOutcome.SUCCESS else 1
+
+    launcher = ChromeLauncher(settings.chrome)
+    launch_result = await launcher.ensure_running()
+    session = await BrowserSession.attach(launch_result.cdp_url, prefer_url_substring=task.start_url)
+    try:
+        provider = build_provider(settings.active_provider, settings.provider_settings())
+        recorder = RunRecorder(task=task, settings=settings)
+        orchestrator = Orchestrator(task=task, settings=settings, provider=provider, session=session, recorder=recorder)
+        result = await orchestrator.run()
+        log.info("Run finished: %s — %s (artefacts: %s)", result.outcome.value, result.message, recorder.run_dir)
+        purge_old_runs(settings.retention)
+        return 0 if result.outcome == RunOutcome.SUCCESS else 1
+    finally:
+        await session.close()
+        launcher.shutdown(launch_result)
+
+
+def _cmd_run(args: argparse.Namespace) -> int:
+    return asyncio.run(_run_task_async(Path(args.task)))
 
 
 def _cmd_gui(_args: argparse.Namespace) -> int:
