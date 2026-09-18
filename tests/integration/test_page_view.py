@@ -24,6 +24,7 @@ from spark.browser.launcher import find_chrome_executable
 from spark.config import OcrSettings
 from spark.perception.ocr.base import OcrResult
 from spark.perception.ocr.tesseract import TesseractOcrEngine
+from conftest import platform_ocr_engine, platform_ocr_engine_name, requires_tesseract
 from spark.perception.page_view import build_page_view
 
 SITE_DIR = Path(__file__).parent.parent / "fixtures" / "site"
@@ -88,7 +89,7 @@ async def test_dom_sufficient_page_never_triggers_ocr(site_url, browser):
     view = await build_page_view(
         page,
         ocr_settings=OcrSettings(),
-        read_engine=TesseractOcrEngine(),
+        read_engine=platform_ocr_engine(),
     )
 
     assert view.text_source == "dom"
@@ -106,12 +107,12 @@ async def test_canvas_page_triggers_ocr_and_reads_real_text(site_url, browser):
     view = await build_page_view(
         page,
         ocr_settings=OcrSettings(),
-        read_engine=TesseractOcrEngine(),
+        read_engine=platform_ocr_engine(),
     )
 
     assert view.text_source == "ocr"
     assert view.ocr_used is True
-    assert view.ocr_engine_used == "tesseract"
+    assert view.ocr_engine_used == platform_ocr_engine_name()
     # Real Tesseract on a clean single-column canvas render should recover a
     # meaningful fraction of distinctive words from the known passage.
     passage_words = set(ANSWER_KEY["passage"]["paragraphs"][0].split())
@@ -129,7 +130,7 @@ async def test_force_ocr_keeps_dom_text_but_records_ocr_ran(site_url, browser):
     view = await build_page_view(
         page,
         ocr_settings=OcrSettings(force_ocr=True),
-        read_engine=TesseractOcrEngine(),
+        read_engine=platform_ocr_engine(),
     )
 
     assert view.text_source == "dom+ocr"
@@ -139,6 +140,7 @@ async def test_force_ocr_keeps_dom_text_but_records_ocr_ran(site_url, browser):
     assert view.ocr_text is not None and len(view.ocr_text) > 0
 
 
+@requires_tesseract
 @pytest.mark.asyncio
 async def test_condensed_font_canvas_triggers_escalation_via_real_confidence(site_url, browser):
     """The condensed-font trap is where real Tesseract actually struggles:
@@ -196,7 +198,7 @@ async def test_two_column_canvas_real_finding_tesseract_handles_it_without_escal
     view = await build_page_view(
         page,
         ocr_settings=OcrSettings(),
-        read_engine=TesseractOcrEngine(),
+        read_engine=platform_ocr_engine(),
         escalation_engine=StubEscalationEngine("should not be needed"),
     )
 
@@ -218,7 +220,7 @@ async def test_single_column_canvas_does_not_spuriously_escalate(site_url, brows
     view = await build_page_view(
         page,
         ocr_settings=OcrSettings(),
-        read_engine=TesseractOcrEngine(),
+        read_engine=platform_ocr_engine(),
         escalation_engine=escalation,
     )
 

@@ -16,7 +16,7 @@ from playwright.async_api import async_playwright
 from spark.browser.launcher import find_chrome_executable
 from spark.config import OcrSettings
 from spark.memory import RunMemory
-from spark.perception.ocr.tesseract import TesseractOcrEngine
+from conftest import platform_ocr_engine
 from spark.perception.page_view import build_page_view
 from spark.reasoning.providers.stub import StubProvider
 from spark.reasoning.schemas import AnsweredQuestion
@@ -71,7 +71,7 @@ async def browser():
 async def test_detect_question_groups_finds_all_five_with_text(site_url, browser):
     page = await browser.new_page()
     await page.goto(f"{site_url}/questions.html?set=1&round=1&nologin=1")
-    view = await build_page_view(page, ocr_settings=OcrSettings(), read_engine=TesseractOcrEngine())
+    view = await build_page_view(page, ocr_settings=OcrSettings(), read_engine=platform_ocr_engine())
 
     groups = detect_question_groups(view)
     assert len(groups) == 5
@@ -88,7 +88,7 @@ async def test_answer_grounded_in_remembered_passage_not_current_page(site_url, 
     """
     page = await browser.new_page()
     await page.goto(f"{site_url}/questions.html?set=1&round=1&nologin=1")
-    view = await build_page_view(page, ocr_settings=OcrSettings(), read_engine=TesseractOcrEngine())
+    view = await build_page_view(page, ocr_settings=OcrSettings(), read_engine=platform_ocr_engine())
     groups = detect_question_groups(view)
 
     memory = RunMemory()
@@ -132,7 +132,7 @@ async def test_answer_grounded_in_remembered_passage_not_current_page(site_url, 
 async def test_click_and_verify_answer_checks_the_real_radio(site_url, browser):
     page = await browser.new_page()
     await page.goto(f"{site_url}/questions.html?set=1&round=1&nologin=1")
-    view = await build_page_view(page, ocr_settings=OcrSettings(), read_engine=TesseractOcrEngine())
+    view = await build_page_view(page, ocr_settings=OcrSettings(), read_engine=platform_ocr_engine())
     groups = detect_question_groups(view)
     group = groups[0]
 
@@ -147,7 +147,7 @@ async def test_click_and_verify_answer_checks_the_real_radio(site_url, browser):
 async def test_low_confidence_triggers_forced_reread_then_retries(site_url, browser):
     page = await browser.new_page()
     await page.goto(f"{site_url}/questions.html?set=1&round=1&nologin=1")
-    view = await build_page_view(page, ocr_settings=OcrSettings(), read_engine=TesseractOcrEngine())
+    view = await build_page_view(page, ocr_settings=OcrSettings(), read_engine=platform_ocr_engine())
     groups = detect_question_groups(view)
     group = groups[0]
 
@@ -174,7 +174,7 @@ async def test_low_confidence_triggers_forced_reread_then_retries(site_url, brow
 
     async def fake_reread():
         reread_calls["n"] += 1
-        return await build_page_view(page, ocr_settings=OcrSettings(force_ocr=True), read_engine=TesseractOcrEngine())
+        return await build_page_view(page, ocr_settings=OcrSettings(force_ocr=True), read_engine=platform_ocr_engine())
 
     answer = await answer_question_group(
         provider=provider, group=group, memory=memory, force_low_confidence_reread=fake_reread

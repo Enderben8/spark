@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import platform_ocr_engine_name
 from spark.browser.launcher import ChromeLauncher
 from spark.browser.session import BrowserSession
 from spark.config import AppSettings, ChromeSettings
@@ -90,7 +91,7 @@ async def test_max_model_calls_stops_the_run(site_url, session):
         start_url=f"{site_url}/passage.html?nologin=1",
         goal="irrelevant for this test",
         stop=StopConfig(score_target=999, max_iterations=1000, max_runtime_minutes=5),
-        perception=PerceptionConfig(ocr_read_engine="tesseract"),
+        perception=PerceptionConfig(ocr_read_engine=platform_ocr_engine_name()),
     )
     settings = AppSettings()
     # Low enough to trip before stall-detection's own 3-identical-visits

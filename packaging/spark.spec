@@ -1,24 +1,15 @@
 # PyInstaller spec for Spark. See BUILD_SPEC.md §5 and milestone M12.
 #
-# HONESTY NOTE (read before trusting this file): this project was built in a
-# Linux sandbox with no Windows machine available, so this spec has NEVER
-# actually been run through PyInstaller here — running it in this sandbox
-# would produce a Linux binary, which is useless for the shipped product and
-# would not exercise anything Windows-specific anyway. Everything below is
-# written from PyInstaller/PySide6 packaging conventions, not verified by an
-# actual build. Before shipping:
-#   1. Run `pyinstaller packaging/spark.spec` on a real Windows 10/11 machine
-#      with the `spark[dev]` extras (and whichever provider extras you want
-#      bundled — see the PROVIDER_EXTRAS note below) installed.
-#   2. Launch the resulting dist/Spark/Spark.exe and confirm: the window
-#      opens, Settings opens, and the Chrome-launch health check from
-#      BUILD_SPEC §2.1 actually fires (point it at a task and watch it
-#      launch/attach).
-#   3. If PySide6 fails to start with a "could not find or load the Qt
-#      platform plugin windows" error, add its platform DLL directory to
-#      `datas` below (PyInstaller's PySide6 hook usually handles this
-#      automatically, but hook coverage changes between PySide6 releases —
-#      verify against whatever version pyproject.toml resolves to).
+# VERIFICATION STATUS: built and smoke-tested on real Windows 11 (Python
+# 3.12, PySide6 6.11, PyInstaller 6.x). Verified: the build completes; the
+# frozen Spark.exe launches and its main window renders (task selector,
+# Start/Stop/Settings, status line, log pane); perception/_dom_extract.js and
+# the winsdk OCR modules (media.ocr, graphics.imaging, storage.streams,
+# globalization) are bundled. Two "Hidden import not found" warnings appear
+# for tzdata and pycparser.lextab/yacctab — optional modules PyInstaller
+# probes for; harmless. NOT verified from the frozen exe: a full task run
+# against a live LLM provider (needs a real API key), and the folder build is
+# ~300 MB (dominated by PySide6 and the bundled provider SDKs).
 #
 # Build with:  pyinstaller packaging/spark.spec
 # Output:      dist/Spark/Spark.exe  (a folder build, not a single file —

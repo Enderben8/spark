@@ -1,3 +1,24 @@
+> ## Verified on real Windows 11 (supersedes the "unverified" items below)
+>
+> Run on Windows 11 / Python 3.12 with `winsdk` 1.0.0b10, en-GB + en-US OCR
+> language packs installed:
+>
+> - `winsdk` **still installs and imports** on Python 3.12 despite being
+>   frozen since 2023-08; migrating to `winrt-*` was not needed.
+> - The **RGBA8 `SoftwareBitmap.create_copy_from_buffer` route is accepted**
+>   directly by `recognize_async` — no BGRA8/premultiplied conversion needed.
+> - Recognition of a rendered two-line sentence: **23/23 words**, per-word
+>   bounding boxes populated in image-pixel coordinates, confidence `None`
+>   (no score is exposed, as researched).
+> - `try_create_from_user_profile_languages()` returned an engine;
+>   `max_image_dimension` is 10000.
+> - Against the fixture site, the **single-column and two-column canvas
+>   passages read correctly with no escalation** (the two-column reading-order
+>   trap BUILD_SPEC §6.4.1 worried about did not occur with this engine), and
+>   the full orchestrator loop and script replay pass using it.
+> - Still unverified: rotated text (`text_angle != 0`), and behaviour on a
+>   machine with no OCR language pack (covered only by mocked tests).
+
 # Windows OCR (`Windows.Media.Ocr` via `winsdk`) — research notes
 
 Written while implementing `windows.py` (BUILD_SPEC §6.4 / §6.4.1). This

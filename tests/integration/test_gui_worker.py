@@ -19,6 +19,7 @@ import pytest
 from PySide6.QtCore import QEventLoop, QThread, QTimer
 from PySide6.QtWidgets import QApplication
 
+from conftest import platform_ocr_engine_name
 from spark.config import AppSettings, ChromeSettings
 from spark.scripts.model import PerceptionConfig, StopConfig, Task
 
@@ -40,7 +41,13 @@ def _run_and_wait(thread: QThread, loop: QEventLoop, *, timeout_ms: int) -> None
     timeout_timer.timeout.connect(loop.quit)
     timeout_timer.start(timeout_ms)
     loop.exec()
-    thread.wait(5000)
+    # The signals above connect to thread.quit, but that is a QUEUED call
+    # onto this (main) thread and the event loop has just stopped, so it may
+    # never be delivered. Destroying a still-running QThread makes Qt abort
+    # the whole process (0xC0000409 on Windows) — found running this suite on
+    # real Windows; it only passed on Linux by timing luck. Quit explicitly.
+    thread.quit()
+    assert thread.wait(5000), "worker thread did not shut down cleanly"
 
 
 def test_worker_runs_full_lifecycle_and_emits_failed_on_unscripted_stub(qapp, tmp_path):
@@ -55,7 +62,7 @@ def test_worker_runs_full_lifecycle_and_emits_failed_on_unscripted_stub(qapp, tm
         start_url="data:text/html,<h1>hello</h1>",
         goal="irrelevant",
         stop=StopConfig(score_target=1, max_iterations=1, max_runtime_minutes=1),
-        perception=PerceptionConfig(ocr_read_engine="tesseract"),
+        perception=PerceptionConfig(ocr_read_engine=platform_ocr_engine_name()),
     )
 
     worker = OrchestratorWorker(task, settings)

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import platform_ocr_engine_name
 from spark.browser.launcher import ChromeLauncher
 from spark.browser.session import BrowserSession
 from spark.config import AppSettings, ChromeSettings
@@ -141,7 +142,7 @@ def _make_task(site_url: str) -> Task:
         score=ScoreConfig(cumulative=True),
         loop_action=LoopAction(type="click"),
         auth=AuthConfig(requires_login=True),
-        perception=PerceptionConfig(ocr_read_engine="tesseract"),
+        perception=PerceptionConfig(ocr_read_engine=platform_ocr_engine_name()),
     )
 
 

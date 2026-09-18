@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import platform_ocr_engine_name
 from spark.browser.launcher import ChromeLauncher
 from spark.browser.session import BrowserSession
 from spark.config import AppSettings, ChromeSettings
@@ -137,7 +138,7 @@ async def test_run_recorder_writes_real_artefacts(site_url, logged_in_session, t
         score=ScoreConfig(cumulative=True),
         loop_action=LoopAction(type="click"),
         auth=AuthConfig(requires_login=True),
-        perception=PerceptionConfig(ocr_read_engine="tesseract"),
+        perception=PerceptionConfig(ocr_read_engine=platform_ocr_engine_name()),
     )
     settings = AppSettings()
     settings.ocr.escalation_engine = None

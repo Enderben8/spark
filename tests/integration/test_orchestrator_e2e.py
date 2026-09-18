@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 from playwright.async_api import async_playwright
 
+from conftest import platform_ocr_engine_name
 from spark.browser.launcher import ChromeLauncher, find_chrome_executable
 from spark.browser.session import BrowserSession
 from spark.config import AppSettings, ChromeSettings
@@ -192,7 +193,7 @@ async def test_full_run_stops_exactly_when_cumulative_target_reached(site_url, l
         score=ScoreConfig(cumulative=True, is_percentage=False),
         loop_action=LoopAction(type="click", button_text=None),
         auth=AuthConfig(requires_login=True),
-        perception=PerceptionConfig(force_ocr=False, ocr_read_engine="tesseract"),
+        perception=PerceptionConfig(force_ocr=False, ocr_read_engine=platform_ocr_engine_name()),
     )
 
     settings = AppSettings()
@@ -223,7 +224,7 @@ async def test_unreachable_target_stops_cleanly_at_max_iterations(site_url, logg
         goal="Read the passage, answer the questions correctly, stop at the target score.",
         stop=StopConfig(score_target=100_000, comparison=">=", max_iterations=2, max_runtime_minutes=5),
         score=ScoreConfig(cumulative=True, is_percentage=False),
-        perception=PerceptionConfig(force_ocr=False, ocr_read_engine="tesseract"),
+        perception=PerceptionConfig(force_ocr=False, ocr_read_engine=platform_ocr_engine_name()),
     )
     settings = AppSettings()
     settings.ocr.escalation_engine = None
