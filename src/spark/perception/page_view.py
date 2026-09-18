@@ -22,7 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from spark.config import OcrSettings
 from spark.logsetup import get_logger
 from spark.perception.capture import capture_page, stitch_tile_texts
-from spark.perception.dom import DomExtractionResult, InteractiveElement, extract
+from spark.perception.dom import DomExtractionResult, InteractiveElement, TextBlock, extract
 from spark.perception.ocr.base import OcrBlock, OcrEngine, OcrEngineUnavailable, OcrResult
 
 log = get_logger("perception.page_view")
@@ -44,6 +44,12 @@ class PageView(BaseModel):
     text: str
     text_source: Literal["dom", "ocr", "dom+ocr"]
     elements: list[InteractiveElement]
+    # Populated from the DOM pass only (never OCR) — used by
+    # skills/answering.py to find a question's text by proximity to its
+    # option elements. Not merged into `text`; not meant to be read by
+    # prompts directly (BUILD_SPEC §6.8 wants a compact element list, not
+    # raw block dumps).
+    dom_text_blocks: list[TextBlock] = Field(default_factory=list)
     screenshot_paths: list[str] = Field(default_factory=list)
     page_height_css: int
     page_width_css: int
@@ -259,6 +265,7 @@ async def build_page_view(
         text=text,
         text_source=text_source,
         elements=dom.elements,
+        dom_text_blocks=dom.text_blocks,
         page_height_css=dom.page_height_css,
         page_width_css=dom.page_width_css,
         device_pixel_ratio=dom.device_pixel_ratio,

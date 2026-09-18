@@ -21,9 +21,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-gemini = ["google-genai>=0.3"]
+# google-genai: bumped floor from >=0.3 to >=1.0 — 0.x was this SDK's early,
+# pre-stabilization API; the Client/client.aio/types.Part.from_bytes shape
+# reasoning/providers/gemini.py is written against is the long-stable 1.x+
+# design (installed and verified directly against 2.24.0 while implementing
+# that module — see its docstring / PROVIDERS_NOTES.md for the full finding).
+gemini = ["google-genai>=1.0"]
 anthropic = ["anthropic>=0.30"]
-openai = ["openai>=1.35"]
+# openai: bumped floor from >=1.35 to >=1.70 — reasoning/providers/openai.py
+# uses the Responses API (`client.responses.create`), which the installed
+# SDK's own CHANGELOG.md shows already existed by 1.70.0 (2025-03-31: "add
+# get /responses/{response_id}/input_items endpoint"); 1.35 predates it, so
+# that floor would let `pip install spark[openai]` resolve to an SDK version
+# missing the API this module actually calls. See openai.py's docstring /
+# PROVIDERS_NOTES.md for the full finding.
+openai = ["openai>=1.70"]
 ollama = ["httpx>=0.27"]
 # NOTE: winsdk has not been updated since 2023-08 (v1.0.0b10) — the pywinrt
 # project's actively-maintained bindings moved to modular winrt-* packages

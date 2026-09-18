@@ -53,6 +53,7 @@ class InteractiveElement(BaseModel):
     tag: str
     role: str
     name: str
+    group_name: str | None = None  # HTML `name` attribute — groups radio/checkbox options into one question
     text: str
     value: str | None
     state: ElementState
@@ -72,6 +73,25 @@ class DomExtractionResult(BaseModel):
     page_width_css: int
     device_pixel_ratio: float
     frame_urls: dict[str, str]  # frame_path -> url, for diagnostics
+
+
+def resolve_frame(frames: list[Frame], path: str) -> Frame | None:
+    """Inverse of ``_frame_path``: given a live frame list and a path string
+    recorded on an :class:`InteractiveElement`/:class:`TextBlock`, find the
+    matching frame. Used by browser/actions.py to dispatch an action to the
+    right frame — action execution must re-resolve by path rather than
+    caching a Frame object, since a stored path is only meaningful against
+    the frame structure at the moment the owning PageView was captured
+    (BUILD_SPEC §7: "Resolve element_id against the inventory of the
+    CURRENT PageView. Never against a stale one").
+    """
+    if not frames:
+        return None
+    main = frames[0]
+    for frame in frames:
+        if _frame_path(frame, main) == path:
+            return frame
+    return None
 
 
 def _frame_path(frame: Frame, main: Frame) -> str:
@@ -142,6 +162,7 @@ async def extract(frames: list[Frame]) -> DomExtractionResult:
                     tag=el["tag"],
                     role=el["role"],
                     name=el["name"],
+                    group_name=el.get("group_name"),
                     text=el["text"],
                     value=el.get("value"),
                     state=ElementState(**el["state"]),

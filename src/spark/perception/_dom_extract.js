@@ -217,6 +217,7 @@
         tag: el.tagName.toLowerCase(),
         role: roleFor(el),
         name: accessibleName(el),
+        group_name: el.getAttribute("name") || null,
         text: (el.innerText || "").trim().slice(0, 300),
         value: "value" in el && el.value != null ? String(el.value) : null,
         state: {

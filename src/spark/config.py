@@ -43,6 +43,7 @@ def _app_data_dir() -> Path:
 DATA_DIR = _app_data_dir()
 RUNS_DIR = DATA_DIR / "runs"
 SCRIPTS_DIR = DATA_DIR / "scripts"
+TASKS_DIR = DATA_DIR / "tasks"
 CHROME_PROFILE_DIR = DATA_DIR / "chrome-profile"
 SETTINGS_PATH = DATA_DIR / "settings.json"
 
@@ -56,6 +57,14 @@ class ProviderSettings(BaseModel):
     temperature: float = 0.2
     max_tokens: int = 2048
     base_url: str | None = None  # e.g. a local Ollama endpoint
+    # Per-1k-token pricing, entered by the user from the provider's own
+    # current pricing page. Left as None (cost tracking skipped, logged as
+    # "unknown" rather than silently reported as $0) rather than hard-coding
+    # a rate here — prices change often and BUILD_SPEC §6.7/§15 are explicit
+    # that model/pricing facts must be verified at configuration time, not
+    # baked into the app.
+    cost_per_1k_input_tokens: float | None = None
+    cost_per_1k_output_tokens: float | None = None
 
 
 class OcrSettings(BaseModel):
@@ -162,5 +171,5 @@ def save_settings(settings: AppSettings, path: Path | None = None) -> None:
 
 
 def ensure_data_dirs() -> None:
-    for d in (DATA_DIR, RUNS_DIR, SCRIPTS_DIR, CHROME_PROFILE_DIR):
+    for d in (DATA_DIR, RUNS_DIR, SCRIPTS_DIR, TASKS_DIR, CHROME_PROFILE_DIR):
         d.mkdir(parents=True, exist_ok=True)
