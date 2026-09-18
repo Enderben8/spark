@@ -11,7 +11,7 @@ reaches your target.
 ## Status
 
 All twelve milestones in the build spec are implemented and covered by
-automated tests (177 passing, 1 skipped, on both Linux and **real Windows 11**
+automated tests (179 passing, 1 skipped, on both Linux and **real Windows 11**
 — DOM extraction, OCR/vision, the four LLM providers, the full
 perceive→classify→act loop, grounded question answering, score-target
 stopping, script record/replay, run artefacts, and the desktop GUI), driven

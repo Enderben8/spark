@@ -47,6 +47,17 @@ class AnsweredQuestion(BaseModel):
     reasoning: str
 
 
+class ButtonAnswer(BaseModel):
+    """Answer for a question whose choices are plain clickable buttons (no
+    radio inputs to group), chosen from the page's element inventory."""
+
+    question: str
+    chosen_element_id: str  # an id from the element list, e.g. "e7"
+    confidence: float = Field(ge=0.0, le=1.0)
+    citation: str
+    reasoning: str
+
+
 class ScoreExtraction(BaseModel):
     """Output of the extract-score prompt (BUILD_SPEC §6.10)."""
 

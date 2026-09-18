@@ -147,6 +147,15 @@ Save it under `%LOCALAPPDATA%\Spark\tasks\<name>.yaml` (the GUI's task
 dropdown looks there) or anywhere else and open it via "New task..." in
 the dropdown.
 
+**Two kinds of question pages are handled.** If the answers are radio
+buttons (small circles) with a Submit button, Spark answers the whole set and
+submits. If each answer is a big clickable button and the page moves on by
+itself when you click — one question per page, no Submit — Spark asks the AI
+to pick the correct button from what is on the page, using the passage it
+read earlier, and clicks it. A round is counted when the score page appears.
+Describe the flow in `goal:` in plain words (for example "click Start your
+current task, then Continue reading; click 'I have read up to here'").
+
 **The three things worth getting right first:**
 
 - `score.cumulative` — does the number on the score page keep growing

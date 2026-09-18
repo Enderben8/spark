@@ -26,14 +26,27 @@
     return ((round - 1) % 2) + 1;
   }
 
+  // ?style=buttons switches the whole loop to one-question-at-a-time big
+  // answer buttons (questions-buttons.html) and is carried through every link.
+  function isButtonStyle() {
+    return new URLSearchParams(window.location.search).get("style") === "buttons";
+  }
+
+  function styleSuffix() {
+    return isButtonStyle() ? "&style=buttons" : "";
+  }
+
   function questionsHrefForRound(round) {
-    return "questions.html?set=" + getSetForRound(round) + "&round=" + round;
+    var page = isButtonStyle() ? "questions-buttons.html" : "questions.html";
+    return page + "?set=" + getSetForRound(round) + "&round=" + round + styleSuffix();
   }
 
   function passageHrefForRound(round) {
-    return "passage.html?round=" + round;
+    return "passage.html?round=" + round + styleSuffix();
   }
 
+  global.isButtonStyle = isButtonStyle;
+  global.styleSuffix = styleSuffix;
   global.getRound = getRound;
   global.getSetForRound = getSetForRound;
   global.questionsHrefForRound = questionsHrefForRound;

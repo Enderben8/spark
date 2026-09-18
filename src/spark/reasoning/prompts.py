@@ -111,6 +111,39 @@ that supports your answer, and your reasoning.
 """
 
 
+def build_button_question_prompt(
+    *,
+    page_text: str,
+    elements: list[InteractiveElement],
+    passage_text: str,
+) -> str:
+    return f"""The current page shows a question with several answer choices,
+each of which is a clickable button. Answer it using ONLY the passage text
+below. If the passage does not contain enough information to answer
+confidently, say so in your reasoning and lower your confidence — do not
+guess from general knowledge.
+
+Passage that was read earlier:
+---
+{passage_text}
+---
+
+Text currently on the page (the question and its choices):
+---
+{page_text}
+---
+
+Clickable elements on the page:
+{format_elements(elements)}
+
+Pick the ONE element that is the correct answer choice and return its id
+(for example "e7") as chosen_element_id. It must be an answer choice — never
+a navigation, menu, or "next" style control. Also return the question text,
+your confidence (0 to 1), a short citation quoting the exact part of the
+passage that supports the answer, and your reasoning.
+"""
+
+
 def build_extract_score_prompt(*, page_text: str) -> str:
     return f"""The following page text may contain a score. Find it and
 report it. A score is commonly shown as a percentage (e.g. "80%"), a count

@@ -64,7 +64,7 @@
 
   // Deliberately NOT labeled "Next" or "Continue" — this exercises
   // label-based button detection rather than an exact-match shortcut.
-  document.getElementById("continueBtn").href = "passage.html?round=" + (round + 1);
+  document.getElementById("continueBtn").href = "passage.html?round=" + (round + 1) + styleSuffix();
 
   document.getElementById("resetBtn").addEventListener("click", function () {
     setScore(0);

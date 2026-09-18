@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Question (buttons) — Spark fixture site</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<script src="auth-guard.js"></script>
+<style>
+  .answer-btn { display:block; width:100%; max-width:640px; margin:12px 0; padding:22px;
+                font-size:22px; text-align:left; cursor:pointer; }
+  .progress { color:#666; }
+</style>
+</head>
+<body>
+<nav class="top-links"><a href="index.html">Fixture site index</a></nav>
+<main>
+  <p class="progress" id="progress"></p>
+  <h1 id="questionText"></h1>
+  <div id="answers"></div>
+</main>
+<script src="round-nav.js"></script>
+<script src="questions-data.js"></script>
+<script>
+(function () {
+  "use strict";
+  // One question at a time. Clicking an answer records it and moves straight
+  // on — there is no Submit button. After the last question, the points are
+  // added to the cumulative score and the score page opens.
+  var round = getRound();
+  var questions = QUESTION_SETS[String(getSetForRound(round))];
+  var params = new URLSearchParams(window.location.search);
+  var index = parseInt(params.get("q"), 10) || 0;
+  var key = "spark_fixture_btn_correct_round" + round;
+
+  var q = questions[index];
+  document.getElementById("progress").textContent = "Question " + (index + 1) + " of " + questions.length;
+  document.getElementById("questionText").textContent = q.question;
+
+  var box = document.getElementById("answers");
+  q.options.forEach(function (opt) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "answer-btn";
+    b.textContent = opt.text;
+    b.addEventListener("click", function () {
+      var correct = parseInt(sessionStorage.getItem(key), 10) || 0;
+      if (opt.id === q.correct) { correct++; }
+      sessionStorage.setItem(key, String(correct));
+
+      if (index + 1 < questions.length) {
+        window.location.href = "questions-buttons.html?set=" + getSetForRound(round) +
+          "&round=" + round + "&q=" + (index + 1) + styleSuffix();
+        return;
+      }
+      var total = (parseInt(sessionStorage.getItem("spark_fixture_score"), 10) || 0) + correct * POINTS_PER_CORRECT;
+      sessionStorage.setItem("spark_fixture_score", String(total));
+      sessionStorage.removeItem(key);
+      window.location.href = "score.html?round=" + round + styleSuffix();
+    });
+    box.appendChild(b);
+  });
+})();
+</script>
+</body>
+</html>

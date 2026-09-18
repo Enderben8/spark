@@ -27,9 +27,15 @@ from spark.perception.ocr.base import OcrBlock, OcrEngine, OcrEngineUnavailable,
 
 log = get_logger("perception.page_view")
 
-# [ASSUMPTION] BUILD_SPEC §6.5 point 2: below this many visible DOM
-# characters, treat the page as needing OCR.
-DOM_TEXT_MIN_CHARS = 200
+# Below this many visible DOM characters, treat the page as needing OCR.
+# BUILD_SPEC §6.5 originally assumed 200, but that was wrong: a short QUESTION
+# page has only ~140 characters of perfectly good, exact DOM text, and a
+# threshold of 200 made Spark discard it in favour of OCR — which then
+# misread "Who" as "VVho". Found running button-style question pages on real
+# Windows. Genuinely image-based pages (canvas/img/embed) are caught
+# separately by MEDIA_DOMINANCE_THRESHOLD below, so this only has to catch
+# "essentially no text at all", e.g. nav chrome around an otherwise blank page.
+DOM_TEXT_MIN_CHARS = 50
 # [ASSUMPTION]: above this canvas/img area ratio, treat the page as
 # image-dominant regardless of character count (a page can have a handful
 # of DOM chars in nav chrome around an otherwise all-canvas body).

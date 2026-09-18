@@ -18,9 +18,9 @@ from spark.logsetup import get_logger
 from spark.memory import RunMemory
 from spark.perception.dom import InteractiveElement
 from spark.perception.page_view import PageView
-from spark.reasoning.prompts import build_answer_question_prompt
+from spark.reasoning.prompts import build_answer_question_prompt, build_button_question_prompt
 from spark.reasoning.provider import LLMProvider, Message, MessageRole
-from spark.reasoning.schemas import AnsweredQuestion
+from spark.reasoning.schemas import AnsweredQuestion, ButtonAnswer
 
 log = get_logger("skills.answering")
 
@@ -189,3 +189,52 @@ async def click_and_verify_answer(frames, group: QuestionGroup, chosen_option_id
             f"Clicked option {chosen_option_id} for {group.group_key!r} but it did not "
             f"register as checked afterwards"
         )
+
+
+async def answer_button_question(
+    *,
+    provider: LLMProvider,
+    view: PageView,
+    memory: RunMemory,
+    force_low_confidence_reread: Callable[[], Awaitable[PageView]] | None = None,
+) -> tuple[ButtonAnswer, InteractiveElement, PageView]:
+    """Answer a question whose choices are plain big buttons.
+
+    There is no radio group to detect, and a page can have other buttons
+    (Next, menus) that are not answers — so the model is shown the page text
+    and numbered element list and picks the answer element itself, grounded in
+    remembered passage text exactly like the radio path. Returns the answer,
+    the chosen element, and the PageView that element id belongs to (it can be
+    a fresh one if a low-confidence OCR re-read replaced the original — ids
+    are only valid against the view they came from).
+    """
+
+    async def _ask(current: PageView) -> ButtonAnswer:
+        passage = memory.relevant_passages(current.text, max_chars=MAX_PASSAGE_CONTEXT_CHARS)
+        message = Message(
+            role=MessageRole.user,
+            text=build_button_question_prompt(
+                page_text=current.text[:4000], elements=current.elements, passage_text=passage
+            ),
+        )
+        response = await provider.complete([message], schema=ButtonAnswer, max_tokens=1024, temperature=0.0)
+        return response.parsed
+
+    answer = await _ask(view)
+    if answer.confidence < LOW_CONFIDENCE_THRESHOLD and force_low_confidence_reread is not None:
+        log.info("Low-confidence button answer (%.2f); forcing an OCR re-read and retrying once", answer.confidence)
+        try:
+            view = await force_low_confidence_reread()
+        except Exception as exc:
+            log.warning("Forced re-read failed (%s); keeping the original low-confidence answer", exc)
+        else:
+            answer = await _ask(view)
+
+    chosen = next((e for e in view.elements if e.id == answer.chosen_element_id), None)
+    if chosen is None:
+        raise ActionExecutionError(
+            f"Model chose element {answer.chosen_element_id!r}, which is not on the page"
+        )
+    if chosen.state.disabled:
+        raise ActionExecutionError(f"Model chose element {chosen.id} ('{chosen.name}'), which is disabled")
+    return answer, chosen, view

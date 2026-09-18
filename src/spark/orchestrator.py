@@ -30,7 +30,12 @@ from spark.reasoning.schemas import Action, ActionType, PageClassification
 from spark.runlog.recorder import RunRecorder
 from spark.scripts.model import Task
 from spark.scripts.recorder import ScriptRecorder
-from spark.skills.answering import answer_question_group, click_and_verify_answer, detect_question_groups
+from spark.skills.answering import (
+    answer_button_question,
+    answer_question_group,
+    click_and_verify_answer,
+    detect_question_groups,
+)
 from spark.skills.scoring import ScoreComparison, extract_score, no_improvement_streak
 
 log = get_logger("orchestrator")
@@ -165,6 +170,7 @@ class Orchestrator:
         iteration = 0
         step = 0
         steps_this_iteration = 0
+        button_round_open = False
         comparison = ScoreComparison(
             target=self.task.stop.score_target,
             cumulative=self.task.score.cumulative,
@@ -267,10 +273,19 @@ class Orchestrator:
                 self.memory.remember_passage(step_index=step, url=view.url, text=view.text, source=view.text_source)
                 await self._advance(view)
             elif page_type == "questions":
-                await self._answer_all_questions(view, step)
-                iteration += 1
-                steps_this_iteration = 0
+                mode = await self._answer_all_questions(view, step)
+                if mode == "form":
+                    iteration += 1
+                    steps_this_iteration = 0
+                else:
+                    # Big-button questions arrive one per page, so a round
+                    # only completes when the score page appears (below).
+                    button_round_open = True
             elif page_type == "score":
+                if button_round_open:
+                    iteration += 1
+                    steps_this_iteration = 0
+                    button_round_open = False
                 outcome = await self._handle_score_page(view, comparison, iteration, step)
                 if outcome is not None:
                     return outcome
@@ -374,10 +389,43 @@ class Orchestrator:
 
         self.recent_actions.append(f"{action.type.value}: {action.reason}")
 
-    async def _answer_all_questions(self, view: PageView, step: int) -> None:
+    async def _answer_button_question(self, view: PageView, step: int) -> None:
+        """One question whose choices are plain buttons: the model picks the
+        answer element, we click it, and the page moves on by itself (there is
+        usually no Submit). Blocked-action patterns still apply.
+        """
+        async def _reread() -> PageView:
+            return await self._perceive(force_ocr=True)
+
+        answer, chosen, _ = await answer_button_question(
+            provider=self.provider, view=view, memory=self.memory, force_low_confidence_reread=_reread
+        )
+        if any(p.lower() in chosen.name.lower() for p in self.settings.safety.blocked_action_patterns):
+            raise ActionExecutionError(
+                f"Refusing to click '{chosen.name}': matches a blocked-action pattern (BUILD_SPEC §12.2)"
+            )
+        await click_element(self.session.frames(), chosen)
+        self.memory.remember_answer(
+            step_index=step,
+            question=answer.question,
+            options=[e.name for e in view.elements if e.role in ("button", "link") and e.name],
+            chosen_option_id=chosen.id,
+            reasoning=answer.reasoning,
+            citation=answer.citation,
+            confidence=answer.confidence,
+        )
+        self.recent_actions.append(f"answered '{answer.question[:60]}' with '{chosen.name}'")
+
+    async def _answer_all_questions(self, view: PageView, step: int) -> str:
+        """Returns "form" for a radio/checkbox question set (answered and
+        submitted in one go) or "buttons" for a single big-button question.
+        """
+        groups = detect_question_groups(view)
+        if not groups:
+            await self._answer_button_question(view, step)
+            return "buttons"
         if self.script_recorder is not None:
             self.script_recorder.record_answer_questions()
-        groups = detect_question_groups(view)
         for group in groups:
 
             async def _reread() -> PageView:
@@ -415,6 +463,7 @@ class Orchestrator:
             await click_element(self.session.frames(), submit)
         else:
             log.warning("Answered all questions but found no enabled Submit-like button afterwards")
+        return "form"
 
     async def _perform_loop_action(self, view: PageView) -> None:
         if self.task.loop_action.type == "navigate" and self.task.loop_action.url:
