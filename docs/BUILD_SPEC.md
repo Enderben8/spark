@@ -3,6 +3,7 @@
 **Audience:** the engineer/model implementing this app. Read the whole document before writing code.
 **Status:** requirements locked by the product owner (see §1). Anything not locked is marked **[ASSUMPTION]** — implement as written, but flag it in your first progress report.
 **Target platform:** Windows 10/11 desktop (x64).
+**Implementation:** all twelve milestones below are built and tested — see the repo root [`README.md`](../README.md#status) for what's verified vs. still needing a real Windows machine before shipping. This document remains the design reference; it was not rewritten to read as a changelog.
 
 ---
 
