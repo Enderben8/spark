@@ -29,6 +29,7 @@ from spark.reasoning.provider import LLMProvider, Message, MessageRole
 from spark.reasoning.schemas import Action, ActionType, PageClassification
 from spark.runlog.recorder import RunRecorder
 from spark.scripts.model import Task
+from spark.scripts.recorder import ScriptRecorder
 from spark.skills.answering import answer_question_group, click_and_verify_answer, detect_question_groups
 from spark.skills.scoring import ScoreComparison, extract_score, no_improvement_streak
 
@@ -80,12 +81,21 @@ class Orchestrator:
         provider: LLMProvider,
         session: BrowserSession,
         recorder: RunRecorder | None = None,
+        script_recorder: ScriptRecorder | None = None,
+        skip_initial_navigation: bool = False,
     ):
         self.task = task
         self.settings = settings
         self.provider = BudgetTrackingProvider(provider)
         self.session = session
         self.recorder = recorder
+        self.script_recorder = script_recorder
+        # Set by scripts/runner.py's fallback path: when a script replay
+        # stops partway through, the browser is already sitting wherever
+        # that step left it. Re-navigating to start_url here would discard
+        # that progress instead of resuming from it (BUILD_SPEC §9.2:
+        # "falls back to AI mode from that point").
+        self._skip_initial_navigation = skip_initial_navigation
         self.memory = RunMemory()
         self.recent_actions: list[str] = []
         self._start_time = time.monotonic()
@@ -133,6 +143,11 @@ class Orchestrator:
         sites individually.
         """
         result = await self._run_loop()
+        if self.script_recorder is not None and result.outcome == RunOutcome.SUCCESS:
+            # Only a genuinely successful run is worth recording as a
+            # replayable script (BUILD_SPEC §9.2: "writes a script
+            # automatically at the end of every successful AI run").
+            self.script_recorder.save()
         if self.recorder is not None:
             self.recorder.finalize(
                 outcome=result.outcome.value,
@@ -144,7 +159,8 @@ class Orchestrator:
         return result
 
     async def _run_loop(self) -> RunResult:
-        await self.session.goto(self.task.start_url)
+        if not self._skip_initial_navigation:
+            await self.session.goto(self.task.start_url)
 
         iteration = 0
         step = 0
@@ -345,6 +361,10 @@ class Orchestrator:
 
         if action.type == ActionType.click and element is not None:
             await click_element(self.session.frames(), element)
+            if self.script_recorder is not None:
+                self.script_recorder.record_click(
+                    selector=element.selector, frame_path=element.frame_path, expectation=action.expectation
+                )
         elif action.type == ActionType.navigate and action.url:
             await self.session.goto(action.url)
         elif action.type == ActionType.scroll:
@@ -355,6 +375,8 @@ class Orchestrator:
         self.recent_actions.append(f"{action.type.value}: {action.reason}")
 
     async def _answer_all_questions(self, view: PageView, step: int) -> None:
+        if self.script_recorder is not None:
+            self.script_recorder.record_answer_questions()
         groups = detect_question_groups(view)
         for group in groups:
 
@@ -397,12 +419,16 @@ class Orchestrator:
     async def _perform_loop_action(self, view: PageView) -> None:
         if self.task.loop_action.type == "navigate" and self.task.loop_action.url:
             await self.session.goto(self.task.loop_action.url)
+            if self.script_recorder is not None:
+                self.script_recorder.record_navigate(url=self.task.loop_action.url)
             return
 
         if self._cached_continue_selector:
             cached = next((e for e in view.elements if e.selector == self._cached_continue_selector), None)
             if cached is not None:
                 await click_element(self.session.frames(), cached)
+                if self.script_recorder is not None:
+                    self.script_recorder.record_click(selector=cached.selector, frame_path=cached.frame_path)
                 return
 
         label = self.task.loop_action.button_text
@@ -421,3 +447,5 @@ class Orchestrator:
 
         self._cached_continue_selector = candidate.selector
         await click_element(self.session.frames(), candidate)
+        if self.script_recorder is not None:
+            self.script_recorder.record_click(selector=candidate.selector, frame_path=candidate.frame_path)

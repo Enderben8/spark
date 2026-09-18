@@ -68,3 +68,33 @@ def load_task(path: Path) -> Task:
 def save_task(task: Task, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(task.model_dump(), sort_keys=False), encoding="utf-8")
+
+
+# -- recorded replay scripts (BUILD_SPEC.md §9.2) --------------------------
+#
+# A different, denser format from Task above: not something the owner
+# writes by hand, but what scripts/recorder.py produces from a successful
+# AI-driven run and scripts/runner.py replays deterministically.
+
+
+class ScriptStep(BaseModel):
+    action_type: Literal["click", "navigate", "answer_questions"]
+    selector: str | None = None
+    frame_path: str | None = None
+    url: str | None = None
+    expectation: str = ""
+
+
+class Script(BaseModel):
+    task_name: str
+    steps: list[ScriptStep] = Field(default_factory=list)
+
+
+def load_script(path: Path) -> Script:
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return Script.model_validate(data)
+
+
+def save_script(script: Script, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(script.model_dump(), sort_keys=False), encoding="utf-8")
