@@ -143,18 +143,32 @@
     return parentText.slice(0, 200);
   }
 
+  function isUnique(sel) {
+    try {
+      return document.querySelectorAll(sel).length === 1;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // A selector that matches EXACTLY this element. Structural paths are built
+  // from the element upward and checked for uniqueness after each step; if
+  // no shorter form is unique the walk continues all the way to <html>, where
+  // a path with nth-of-type at every level is unique by construction. (An
+  // earlier version stopped after 6 levels, which on real, deeply nested
+  // sites matched several different buttons and made clicks ambiguous.)
   function stableSelector(el) {
     if (el.id) {
       try {
-        return "#" + CSS.escape(el.id);
+        const byId = "#" + CSS.escape(el.id);
+        if (isUnique(byId)) return byId;
       } catch (e) {
-        /* fall through to structural selector */
+        /* fall through to a structural selector */
       }
     }
     const parts = [];
     let node = el;
-    let depth = 0;
-    while (node && node.nodeType === 1 && depth < 6) {
+    while (node && node.nodeType === 1) {
       let part = node.tagName.toLowerCase();
       const parent = node.parentElement;
       if (parent) {
@@ -164,8 +178,9 @@
         }
       }
       parts.unshift(part);
+      const candidate = parts.join(" > ");
+      if (node.tagName === "HTML" || isUnique(candidate)) return candidate;
       node = parent;
-      depth++;
     }
     return parts.join(" > ");
   }

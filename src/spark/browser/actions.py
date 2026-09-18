@@ -46,9 +46,30 @@ def _get_frame(frames: list[Frame], element: InteractiveElement) -> Frame:
     return frame
 
 
-def _locator(frames: list[Frame], element: InteractiveElement):
+async def _resolve(frames: list[Frame], element: InteractiveElement):
+    """The locator for ``element``: its recorded selector if that matches
+    exactly one thing, else a backup found by role + visible name. Playwright
+    refuses to act on an ambiguous locator (strict mode), which is right — it
+    must never click a guess — so we only fall back when the alternative is
+    itself unambiguous, and otherwise raise a clear error.
+    """
     frame = _get_frame(frames, element)
-    return frame.locator(element.selector)
+    primary = frame.locator(element.selector)
+    count = await primary.count()
+    if count == 1:
+        return primary
+    if element.name and element.role not in ("generic", ""):
+        try:
+            by_role = frame.get_by_role(element.role, name=element.name, exact=True)  # type: ignore[arg-type]
+            if await by_role.count() == 1:
+                log.info("Selector for %s matched %d elements; using role+name instead", element.id, count)
+                return by_role
+        except Exception:
+            pass
+    raise ElementNotFoundError(
+        f"Element {element.id} ({element.tag} '{element.name}') is ambiguous or missing: its "
+        f"selector {element.selector!r} matched {count} elements and no unique role+name match exists"
+    )
 
 
 async def click_element(
@@ -57,7 +78,7 @@ async def click_element(
     *,
     timeout_ms: int = DEFAULT_ACTION_TIMEOUT_MS,
 ) -> None:
-    locator = _locator(frames, element)
+    locator = await _resolve(frames, element)
     try:
         await locator.scroll_into_view_if_needed(timeout=timeout_ms)
         await locator.click(timeout=timeout_ms)
@@ -93,7 +114,7 @@ async def type_text(
     clear_first: bool = True,
     timeout_ms: int = DEFAULT_ACTION_TIMEOUT_MS,
 ) -> None:
-    locator = _locator(frames, element)
+    locator = await _resolve(frames, element)
     try:
         await locator.scroll_into_view_if_needed(timeout=timeout_ms)
         if clear_first:
@@ -113,7 +134,7 @@ async def select_option(
     *,
     timeout_ms: int = DEFAULT_ACTION_TIMEOUT_MS,
 ) -> None:
-    locator = _locator(frames, element)
+    locator = await _resolve(frames, element)
     try:
         await locator.scroll_into_view_if_needed(timeout=timeout_ms)
         await locator.select_option(value, timeout=timeout_ms)
@@ -140,7 +161,7 @@ async def scroll_to_element(
     *,
     timeout_ms: int = DEFAULT_ACTION_TIMEOUT_MS,
 ) -> None:
-    locator = _locator(frames, element)
+    locator = await _resolve(frames, element)
     try:
         await locator.scroll_into_view_if_needed(timeout=timeout_ms)
     except Exception as exc:
@@ -161,7 +182,7 @@ async def verify_checked(
     it (BUILD_SPEC §6.9 step 4: "verify the selection stuck ... An
     unverified click is a failed click.").
     """
-    locator = _locator(frames, element)
+    locator = await _resolve(frames, element)
     try:
         return await locator.is_checked(timeout=timeout_ms)
     except Exception:

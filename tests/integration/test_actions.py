@@ -138,14 +138,49 @@ async def test_scroll_page_down_changes_scroll_position(site_url, browser):
 
 
 @pytest.mark.asyncio
-async def test_click_element_with_stale_selector_raises_clear_error(site_url, browser):
+async def test_stale_selector_recovers_via_unique_role_and_name(site_url, browser):
     page = await browser.new_page()
     await page.goto(f"{site_url}/passage.html?nologin=1")
     dom = await extract(page.frames)
     next_button = next(e for e in dom.elements if "next" in e.name.strip().lower())
 
-    # Simulate a stale PageView: the element no longer matches anything real.
+    # The recorded selector no longer matches anything, but there is exactly
+    # one button named "Next", so the click should still land on it.
     stale = next_button.model_copy(update={"selector": "#this-does-not-exist-anywhere"})
-    with pytest.raises(ActionExecutionError):
-        await click_element(page.frames, stale, timeout_ms=1000)
+    await click_element(page.frames, stale, timeout_ms=3000)
+    await page.wait_for_load_state("load")
+    assert "questions.html" in page.url
+    await page.close()
+
+
+@pytest.mark.asyncio
+async def test_missing_selector_and_no_unique_name_raises_clear_error(site_url, browser):
+    page = await browser.new_page()
+    await page.goto(f"{site_url}/passage.html?nologin=1")
+    dom = await extract(page.frames)
+    next_button = next(e for e in dom.elements if "next" in e.name.strip().lower())
+
+    hopeless = next_button.model_copy(update={"selector": "#this-does-not-exist-anywhere", "name": ""})
+    with pytest.raises(ActionExecutionError, match="ambiguous or missing"):
+        await click_element(page.frames, hopeless, timeout_ms=1000)
+    await page.close()
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_selector_uses_role_and_name_never_guesses(browser):
+    """Regression for a failure on a real site: a selector that matches two
+    buttons must not be clicked blindly. Where the button's role+name is
+    unique, use that; the click must land on the RIGHT button.
+    """
+    page = await browser.new_page()
+    await page.set_content(
+        "<button id=x onclick=\"document.title='menu'\"></button>"
+        "<button onclick=\"document.title='start'\">Start your current task</button>"
+    )
+    dom = await extract(page.frames)
+    start = next(e for e in dom.elements if e.name == "Start your current task")
+
+    ambiguous = start.model_copy(update={"selector": "button"})  # matches BOTH buttons
+    await click_element(page.frames, ambiguous, timeout_ms=3000)
+    assert await page.title() == "start"
     await page.close()

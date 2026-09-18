@@ -140,3 +140,49 @@ async def test_element_ids_are_unique_and_stable_ordering(session):
     ids = [e.id for e in result.elements]
     assert len(ids) == len(set(ids))
     assert ids == sorted(ids, key=lambda s: int(s[1:]))
+
+
+def _deeply_nested_duplicate_page() -> str:
+    """Two containers with an IDENTICAL nested structure, each ending in a
+    button at the same relative position. Any selector that only records the
+    last few levels cannot tell them apart — exactly what broke on a real,
+    deeply nested site (a 6-level cutoff matched two different buttons).
+    """
+    inner = "<button>{label}</button>"
+    for _ in range(9):
+        inner = "<div><span>x</span><div>" + inner + "</div></div>"
+    return "<body>" + inner.format(label="First") + inner.format(label="Second") + "</body>"
+
+
+@pytest.mark.asyncio
+async def test_every_selector_matches_exactly_one_element(session):
+    from urllib.parse import quote
+
+    await session.goto("data:text/html," + quote(_deeply_nested_duplicate_page()))
+    result = await extract(session.frames())
+
+    buttons = [e for e in result.elements if e.tag == "button"]
+    assert {b.name for b in buttons} == {"First", "Second"}
+    for e in result.elements:
+        count = await session.page.locator(e.selector).count()
+        assert count == 1, f"selector for {e.id} ({e.name!r}) matched {count} elements: {e.selector}"
+
+
+@pytest.mark.asyncio
+async def test_selectors_are_unique_on_the_fixture_pages(session):
+    import http.server, threading
+    from pathlib import Path
+
+    site = Path(__file__).parent.parent / "fixtures" / "site"
+    handler = lambda *a, **kw: http.server.SimpleHTTPRequestHandler(*a, directory=str(site), **kw)  # noqa: E731
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        for path in ("questions.html?set=1&round=1&nologin=1", "passage.html?nologin=1", "login.html"):
+            await session.goto(f"{base}/{path}")
+            result = await extract(session.frames())
+            for e in result.elements:
+                assert await session.page.locator(e.selector).count() == 1, (path, e.id, e.selector)
+    finally:
+        server.shutdown()
