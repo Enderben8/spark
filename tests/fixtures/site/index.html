@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Spark fixture site</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <h1>Spark fixture site</h1>
+  <p>A small static site for exercising Spark's DOM extraction, OCR,
+     scoring and authentication handling. See README.md for details.
+     Every link below except "Login" is behind the fake login wall; add
+     <code>?nologin=1</code> to any URL to bypass it during manual testing.</p>
+
+  <ul>
+    <li><a href="login.html">login.html</a> &mdash; fake sign-in page</li>
+    <li><a href="passage.html">passage.html</a> &mdash; plain long passage (requires scrolling)</li>
+    <li><a href="passage-canvas.html">passage-canvas.html</a> &mdash; passage rendered on &lt;canvas&gt;, no DOM text (OCR case)</li>
+    <li><a href="passage-canvas-condensed.html">passage-canvas-condensed.html</a> &mdash; canvas passage in a small/condensed font (OCR trap)</li>
+    <li><a href="passage-canvas-columns.html">passage-canvas-columns.html</a> &mdash; canvas passage in two newspaper columns (OCR reading-order trap)</li>
+    <li><a href="passage-lazy.html">passage-lazy.html</a> &mdash; paragraphs load only as you scroll</li>
+    <li><a href="passage-iframe.html">passage-iframe.html</a> &mdash; passage embedded via a same-origin &lt;iframe&gt;</li>
+    <li><a href="passage-sticky.html">passage-sticky.html</a> &mdash; passage with a sticky header and footer</li>
+    <li><a href="questions.html?set=1&round=1">questions.html?set=1</a> &mdash; comprehension questions, set 1</li>
+    <li><a href="questions.html?set=2&round=1">questions.html?set=2</a> &mdash; comprehension questions, set 2</li>
+    <li><a href="score.html">score.html</a> &mdash; cumulative score display</li>
+    <li><a href="answer-key.json">answer-key.json</a> &mdash; machine-readable passage text and answer key</li>
+  </ul>
+</main>
+</body>
+</html>

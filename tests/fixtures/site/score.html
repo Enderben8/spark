@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Score</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<script src="auth-guard.js"></script>
+</head>
+<body>
+<nav class="top-links"><a href="index.html">Fixture site index</a></nav>
+
+<header class="page-header">
+  <h1>Score</h1>
+</header>
+
+<main>
+  <p class="score-display" id="scoreDisplay">Score: 0</p>
+
+  <p>
+    <a id="continueBtn" class="btn" href="passage.html?round=2">Carry on</a>
+    <button type="button" id="resetBtn" class="btn secondary">Reset score</button>
+  </p>
+</main>
+
+<script src="round-nav.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var params = new URLSearchParams(window.location.search);
+
+  var round = parseInt(params.get("round"), 10);
+  if (isNaN(round) || round < 1) {
+    round = 1;
+  }
+
+  function getScore() {
+    try {
+      return parseInt(sessionStorage.getItem("spark_fixture_score"), 10) || 0;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  function setScore(value) {
+    try {
+      sessionStorage.setItem("spark_fixture_score", String(value));
+    } catch (e) {
+      // No sessionStorage available; nothing to persist.
+    }
+  }
+
+  // ?reset=1 zeroes the cumulative score, for repeatable test runs.
+  if (params.get("reset") === "1") {
+    setScore(0);
+  }
+
+  function render() {
+    document.getElementById("scoreDisplay").textContent = "Score: " + getScore();
+  }
+
+  render();
+
+  // Deliberately NOT labeled "Next" or "Continue" — this exercises
+  // label-based button detection rather than an exact-match shortcut.
+  document.getElementById("continueBtn").href = "passage.html?round=" + (round + 1);
+
+  document.getElementById("resetBtn").addEventListener("click", function () {
+    setScore(0);
+    render();
+  });
+})();
+</script>
+</body>
+</html>

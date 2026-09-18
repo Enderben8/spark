@@ -3,6 +3,7 @@
 **Audience:** the engineer/model implementing this app. Read the whole document before writing code.
 **Status:** requirements locked by the product owner (see §1). Anything not locked is marked **[ASSUMPTION]** — implement as written, but flag it in your first progress report.
 **Target platform:** Windows 10/11 desktop (x64).
+**Implementation:** all twelve milestones below are built and tested — see the repo root [`README.md`](../README.md#status) for what's verified vs. still needing a real Windows machine before shipping. This document remains the design reference; it was not rewritten to read as a changelog.
 
 ---
 
@@ -29,14 +30,16 @@ The site is the owner's **own personal site**. The stated purpose is to exercise
 | Decision | Choice |
 | --- | --- |
 | Browser control | **Attach to the user's existing Chrome** over the Chrome DevTools Protocol (CDP). Do **not** launch a throwaway Playwright browser as the primary path. |
-| AI model | **Pluggable** — provider chosen in settings. Gemini, Anthropic Claude, OpenAI and a local Ollama option behind one interface. |
+| AI model | **Pluggable** — provider chosen in settings. Gemini, Anthropic Claude, OpenAI and a local Ollama option behind one interface. **Ship Gemini as the default** (owner wants the free tier); see §5.1 for the caveats that come with it. |
 | Autonomy | **Fully autonomous.** Given a task, run to completion without prompting. (Safety rails in §12 are still mandatory — they are budget/scope limits, not approval prompts.) |
-| Page reading | **Hybrid**: DOM text first, OCR fallback. Never assume one or the other. |
+| Page reading | **Hybrid**: DOM text first, OCR fallback. Never assume one or the other. OCR defaults to **free local Windows OCR, escalating to the AI model only when the local read looks poor** (§6.4). |
 | Answer policy | **Always select the correct answer**, reasoned from the text actually read. |
 | Task input | **Both**: a plain-English goal (AI-driven), and optional saved YAML scripts for deterministic, cheap reruns. |
-| Stop condition | **Score-target based**: read the score the site displays, stop when it reaches the configured target. |
+| Stop condition | **Score-target based**: the site shows a **plain points number** that is **cumulative across rounds**; stop once it reaches the configured target (§6.10). |
 | Stack | **Python 3.11+** with a small desktop window (start/stop, live log, settings). |
 | Packaging | Runnable from source during development; single-file `.exe` via PyInstaller as the final milestone. |
+| Authentication | The site **requires a login**. One-time manual sign-in in the Spark Chrome profile is a required part of first-run setup (§2.1, §6.1). |
+| Run artefacts | Full text log every run; screenshots of **question and score pages only** (§13). |
 
 ### 1.3 Explicit non-goals
 
@@ -137,8 +140,8 @@ spark/
 │   │   ├── capture.py           # full-page / tiled screenshots, DPR, sticky handling
 │   │   ├── ocr/
 │   │   │   ├── base.py          # OcrEngine protocol
-│   │   │   ├── vision.py        # LLM-vision OCR (default)
-│   │   │   ├── windows.py       # Windows.Media.Ocr via winsdk (offline)
+│   │   │   ├── vision.py        # LLM-vision OCR (escalation path)
+│   │   │   ├── windows.py       # Windows.Media.Ocr via winsdk (default, offline)
 │   │   │   └── tesseract.py     # optional
 │   │   └── page_view.py         # merges DOM + OCR into one PageView object
 │   ├── reasoning/
@@ -185,6 +188,16 @@ spark/
 Optional, install-on-demand: `winsdk` (Windows OCR), `pytesseract` (+ Tesseract binary).
 
 **Model SDKs:** each provider module imports its SDK lazily inside the module, so a user who only uses Gemini does not need the Anthropic SDK installed. A missing SDK must produce a clear "install X to use this provider" message, not an import traceback at startup.
+
+### 5.1 Default provider: Gemini, and what comes with the free tier
+
+The owner wants zero running cost, so **Gemini ships as the default provider** and the free tier is the assumed starting point. Three consequences for the implementation — none is a blocker, all are things that will bite if ignored:
+
+1. **Free-tier data use.** Google's published terms distinguish paid from unpaid use: content submitted to the **unpaid** services, and the responses, may be used to improve Google's products, and may be reviewed by humans — Google explicitly advises against submitting sensitive, confidential or personal information to unpaid services. Linking a billing account moves you to the paid terms, under which prompts and responses are not used for product improvement. **Verify the current wording at https://ai.google.dev/gemini-api/terms and https://ai.google.dev/gemini-api/docs/billing** (this could not be fetched during specification — the sandbox blocks that domain). Practical effect here: the passages on the owner's own test site are almost certainly fine, but Spark must **never** send login pages, account pages or redacted-secret content to a free-tier model. The redaction rule in §12.3 is therefore mandatory, not optional, and the GUI should state which tier the configured key is on if that is detectable.
+2. **Rate limits are low and change often.** Free-tier limits are per-project, differ sharply by model, and reset daily. Do not hard-code any number. Implement: respect `Retry-After`, exponential backoff on 429, a clear "daily free-tier quota exhausted" state that **pauses the run rather than failing it**, and a setting for requests-per-minute throttling. Check current limits at https://ai.google.dev/gemini-api/docs/rate-limits. Widely-circulated figures for these limits are inconsistent and mostly from third-party blogs — use Google's table, not a summary of it.
+3. **This is why local-first OCR matters.** With `windows` OCR doing the reading (§6.4), model calls drop to roughly one classify + one answer per question set, plus occasional escalations. That is what keeps a long loop inside a free tier. If you ever change the default back to vision-OCR, re-check the arithmetic against the daily quota first.
+
+**Alternatives worth mentioning to the owner if Gemini's limits prove too tight:** a local model via **Ollama** (free forever, fully private, no quota — but materially weaker at reading pages and choosing actions, so expect lower answer accuracy), or any provider's paid tier at a few pence per run. The pluggable provider layer means switching is a settings change, not a rewrite.
 
 ---
 
@@ -263,18 +276,31 @@ Three engines:
 
 | Engine | Use | Geometry |
 | --- | --- | --- |
-| `vision` (**default**) | Send the image(s) to the configured vision model and ask for verbatim text. Best accuracy on real-world layouts, no extra install, handles multi-column and unusual fonts. | **Unreliable.** Do not trust coordinates from a general vision model. Text only. |
-| `windows` | `Windows.Media.Ocr` via `winsdk`. Free, offline, already present on Windows 10/11. | **Yes** — per-word bounding boxes. |
+| `windows` (**default**) | `Windows.Media.Ocr` via `winsdk`. Free, offline, zero API cost, already present on Windows 10/11. Weaker on unusual fonts and multi-column layouts. | **Yes** — per-word bounding boxes. |
+| `vision` (**escalation**) | Send the image(s) to the configured vision model and ask for verbatim text. Best accuracy on real-world layouts, handles multi-column and unusual fonts. Costs money per page, so it runs only when the local read looks poor. | **Unreliable.** Do not trust coordinates from a general vision model. Text only. |
 | `tesseract` | Optional, needs a separate installer. | Yes. |
 
 **This distinction is load-bearing.** Reading text and locating a click target are different jobs:
 
-- **Reading the passage** → any engine; `vision` by default.
+- **Reading the passage** → `windows` first, escalating to `vision` per the rule below.
 - **Clicking something that exists only in pixels** (canvas-rendered buttons, image maps) → you need bounding boxes, so you need `windows` or `tesseract`. Map image coordinates to page coordinates as:
   `page_x = tile_scroll_x + (image_x / device_pixel_ratio)`, likewise for y. Get the click in via CDP mouse events at those coordinates.
-- **[ASSUMPTION]** Default configuration: `ocr.read_engine = "vision"`, `ocr.geometry_engine = "windows"`. The geometry engine is only invoked when a coordinate-click is actually required.
+- **Default configuration** (owner's choice — minimise API cost): `ocr.read_engine = "windows"`, `ocr.escalation_engine = "vision"`, `ocr.geometry_engine = "windows"`. The geometry engine is only invoked when a coordinate-click is actually required.
 
 If a required geometry engine is unavailable, Spark must fail the step with a clear message rather than guessing at coordinates.
+
+#### 6.4.1 The escalation rule
+
+Local OCR is free but fallible, and **a misread passage produces confidently wrong answers** — which is exactly the failure this tool must not have. So escalation to the vision model must be generous, not grudging. Escalate to `vision` for a given capture when **any** of:
+
+1. Windows OCR reports mean confidence below a threshold (**[ASSUMPTION]** 0.75), where the engine exposes one.
+2. The result fails a **sanity check**: fewer than 100 characters from a capture whose image is substantially non-blank; a dictionary-word ratio below ~70% (garbled output); or no sentence-ending punctuation in a long result.
+3. The layout is multi-column or the capture contains a table — detect via DOM geometry where available, or via widely separated text blocks at the same vertical offset. Local OCR commonly interleaves columns into nonsense here, and it does so *without* lowering its confidence, which is why this is a separate trigger.
+4. A question could not be answered confidently from the local read (§6.9 step 3) — re-read that page with `vision` before answering.
+
+Log every escalation with its trigger. If escalations exceed ~50% of captures on the owner's real site, local-first is not paying for itself and the default should be revisited — say so in the run report rather than quietly burning API calls.
+
+**Language packs:** `Windows.Media.Ocr` only works for installed OCR language packs. At startup, enumerate available languages and, if the needed one is missing, fall back to `vision` with a clear one-time warning naming the Windows Settings path to install it. Do not let a missing language pack present as bad OCR.
 
 ### 6.5 `perception/page_view.py` — one merged view
 
@@ -366,12 +392,36 @@ Handle multiple questions per page, questions revealed one at a time, and "submi
 
 The stop condition for the whole run.
 
-- **Detection**, in priority order: (1) a user-configured CSS selector or regex from the task file — always wins when present; (2) the page classifier flags a score page and the extract-score prompt returns a value; (3) a regex sweep for common shapes: `12/20`, `60%`, `Score: 12`, `You scored 12 out of 20`.
-- **Parse** into `ScoreReading{raw, value, maximum, is_percentage}`. Normalise percentage vs absolute consistently and record which it is — mixing them up is the obvious bug here.
+**Confirmed shape on the owner's site:** the score is a **plain points number with no visible maximum**, and it is **cumulative — it builds up across rounds**. Implement for that case, but parse the other shapes too, because the tool is general-purpose.
+
+- **Detection**, in priority order: (1) a user-configured CSS selector or regex from the task file — always wins when present; (2) the page classifier flags a score page and the extract-score prompt returns a value; (3) a regex sweep for common shapes: `Score: 450`, `450 points`, `12/20`, `60%`, `You scored 12 out of 20`.
+- **Parse** into `ScoreReading{raw, value, maximum, is_percentage}`. For the owner's site, `maximum` is `None` and `is_percentage` is `False`. Normalise percentage vs absolute consistently and record which it is — mixing them up is the obvious bug here. **Never** derive a percentage when no maximum was actually displayed; a points score must be compared as points.
 - **Compare** against `target` from the task file, with a configurable comparison (`>=` default).
+- **Cumulative semantics** (`score.cumulative: true`, the default for this site): the site itself maintains the running total, so Spark compares the **latest reading** against the target — it must **not** sum the readings itself. Summing an already-cumulative score would double-count and stop the run early. Assert this explicitly in a unit test.
+  - Set `cumulative: false` for a site that scores each round independently; then the target means "a single round at or above target", and the run continues until one round achieves it.
+  - **Sanity check:** in cumulative mode, a reading that is *lower* than the previous one means the site reset, the page was misread, or a new session started. Log it loudly, do not treat it as progress, and count it toward the no-improvement bail-out.
 - **On reaching target:** stop the run, mark it successful, write the report, leave the browser open.
-- **On not reaching target:** continue the loop (navigate to the next round / restart the module per the task's `loop_action`).
+- **On not reaching target:** perform the task's `loop_action`. For the owner's site this is **click the continue button on the score page** — exact label unknown, so resolve it as: a task-file `loop_action.button_text` if given; else the highest-scoring interactive element on the score page matching `next|continue|try again|again|retry|carry on|next round` (case-insensitive, accessible name); else ask the model to pick one from the inventory. Cache whichever label worked and reuse it for the rest of the run without a further model call.
 - **Guard rails** (mandatory — a fully autonomous loop with no ceiling is a defect): stop with a clear "target not reached" outcome when any of `max_iterations` (**[ASSUMPTION]** default 25), `max_runtime_minutes` (default 60), or the cost budget (§12.1) is hit. Also stop if the score **fails to improve** across N consecutive iterations (**[ASSUMPTION]** N=3) — that means something is wrong, and grinding a broken loop is worse than stopping.
+
+### 6.11 Authentication and session handling
+
+**The site requires a login.** Because Spark uses its own Chrome profile (§2.1), the user's everyday browser session does not carry over — this must be handled deliberately, or the first run will silently land on a login page and the agent will try to "answer questions" on it.
+
+**First-run setup (a required step, not an optional one):**
+
+1. Settings has a **"Set up browser profile"** button. It launches Chrome on the Spark automation profile at the task's `start_url` and shows a modal: *"Sign in to your site in the browser window, then click Done. Spark will remember this login for future runs."*
+2. Spark does **not** read, capture, store or transmit the credentials. It waits for the user to click Done, then confirms it can reach an authenticated page.
+3. The session persists in the automation profile across runs, because it is a real, persistent Chrome profile.
+
+**Before every run:** navigate to `start_url` and check whether the result is an authenticated page or a login wall. Detect a login wall by: a password input present; a URL matching `login|signin|auth|account`; or a redirect away from the requested path. If a login wall is found, **pause the run** (do not fail it, do not attempt to log in) and prompt: *"Your session has expired — sign in again in the browser window, then click Resume."* The owner has not confirmed how often sessions expire, so treat mid-run expiry as possible: the same check runs whenever a navigation lands somewhere unexpected.
+
+**Hard rules:**
+
+- Spark **never** types credentials, never stores a password, and never offers to. The user signs in by hand, always.
+- A page detected as a login page is **never sent to the model** — not its text, not a screenshot. This matters specifically because the default provider is a free tier whose terms permit human review of submitted content (§5.1).
+- Credentials, cookies and session tokens are never written to a run log.
+- The domain allow-list (§12.2) applies from the moment the browser opens, so an unexpected auth redirect to a third-party identity provider stops the run rather than wandering.
 
 ---
 
@@ -447,23 +497,27 @@ goal: >
   correctly. Repeat until the score target is met.
 
 stop:
-  score_target: 80
-  score_is_percentage: true
+  score_target: 450           # plain points, not a percentage
   comparison: ">="
   max_iterations: 25
   max_runtime_minutes: 60
 
-score:                      # optional hints; omit to let the AI find it
-  selector: "#final-score"
-  regex: "Score:\\s*(\\d+)\\s*%"
+score:
+  cumulative: true            # site keeps the running total; compare latest reading
+  is_percentage: false
+  selector: null              # optional hint; null = let Spark find it
+  regex: null                 # e.g. "Score:\\s*(\\d+)"
 
-loop_action:                # what to do when the target is not yet reached
-  type: navigate
-  url: "https://example.invalid/module/1"
+loop_action:                  # when the target is not yet reached
+  type: click
+  button_text: null           # null = auto-detect (next/continue/try again)
+
+auth:
+  requires_login: true        # sign in once by hand in the Spark Chrome profile
 
 perception:
   force_ocr: false
-  ocr_read_engine: vision
+  ocr_read_engine: windows    # free local OCR, escalating to the model when poor
 
 limits:
   max_steps_per_iteration: 60
@@ -502,10 +556,14 @@ Before wiring anything to a real site, create `tests/fixtures/site/`: a small st
 - `passage-canvas.html` — the *same* passage rendered into a `<canvas>` so no DOM text exists. This is the OCR test case.
 - `passage-lazy.html` — content that only loads as you scroll. Tests §2.2 step 2.
 - `questions.html` — 5 multiple-choice questions answerable only from the passage, with radio inputs whose labels sit in sibling elements.
-- `score.html` — shows a score; regenerates a new round on "Try again" so the loop and the target stop condition can be exercised end to end.
+- `score.html` — shows a **cumulative plain points score** (e.g. `Score: 180`, no maximum shown) that **increases with each completed round**, plus a continue button. Deliberately label that button something other than "Next" (e.g. "Carry on") so auto-detection of the label is genuinely exercised rather than accidentally passing.
+- `login.html` — a fake sign-in page that sets a session cookie, with every other page redirecting to it when the cookie is absent. This lets the one-time-sign-in flow, the session-expiry detection and the "never send a login page to the model" redaction rule all be tested without touching the owner's real site.
 - A variant inside an `<iframe>`, and one with a sticky header.
+- A `?reset=1` control to zero the cumulative score, so tests can run repeatably.
 
-Make the correct answers deterministic and known to the tests, so scoring accuracy can be asserted rather than eyeballed.
+Make the correct answers deterministic and known to the tests, so scoring accuracy can be asserted rather than eyeballed. Award a fixed number of points per correct answer so the expected cumulative total after N rounds is exactly predictable.
+
+**Deliberately include a local-OCR trap:** render one passage variant in a condensed or unusual font, and one in two columns. These are precisely the cases where `Windows.Media.Ocr` degrades *without* lowering its confidence score, and they are what the §6.4.1 escalation rule exists to catch. A test must assert that escalation actually fires on the two-column page.
 
 ### 11.2 Test layers
 
@@ -546,7 +604,7 @@ Stop button, plus a global hotkey (**[ASSUMPTION]** `Ctrl+Alt+Shift+S`). Immedia
 Each run writes `%LOCALAPPDATA%\Spark\runs\<timestamp>-<task>\`:
 
 - `run.jsonl` — one JSON object per step: step index, page URL, page type, text source, action taken, expectation, verification result, model usage, latency.
-- `screenshots/` — one capture per step (configurable: all steps / question and score pages only / off).
+- `screenshots/` — **default: question and score pages only** (the owner's choice: the images that actually explain a wrong answer, without hundreds of files per run). Configurable to all steps (useful while debugging the tool itself) or off entirely.
 - `memory.json` — final memory store, including every passage and every Q&A with its citation.
 - `report.md` — human-readable summary: outcome, iterations, final score vs target, questions answered and accuracy if the site reveals it, total cost, errors.
 - `task.yaml`, resolved settings (**keys redacted**), and `PROMPT_VERSION`.
@@ -560,14 +618,14 @@ Work in this order. Each milestone must be independently demonstrable — do not
 | # | Milestone | Done when |
 | --- | --- | --- |
 | **M0** | Scaffolding: repo layout, `pyproject.toml`, config model, logging, `python -m spark` prints version and settings path. | Clean install into a fresh venv works; tests run. |
-| **M1** | **Fixture site** (§11.1) served locally. | All pages render, including the canvas and lazy variants. |
-| **M2** | Chrome launcher + CDP attach, with the §2.1 health check. | From a cold start, Spark launches Chrome on the automation profile, verifies the port, attaches, and reports the page title. Killing the port produces the named error, not a hang. |
+| **M1** | **Fixture site** (§11.1) served locally. | All pages render, including the canvas, lazy, login and cumulative-score variants. |
+| **M2** | Chrome launcher + CDP attach, with the §2.1 health check, **plus the one-time sign-in flow**. | From a cold start, Spark launches Chrome on the automation profile, verifies the port, attaches, and reports the page title. Killing the port produces the named error, not a hang. After signing in once by hand on the fixture login page, a later run finds the session still valid; if it has expired, Spark pauses and says so rather than failing obscurely. |
 | **M3** | DOM extraction + element inventory. | On the fixture passage page, full passage text and a correctly-named `Next` button are reported; iframe variant works. |
-| **M4** | Capture + OCR (vision engine), including tall-page tiling and overlap de-dup. | The canvas passage is read with ≥95% word accuracy against the known source text; a >8000 px page is tiled and stitched with no duplicated sentences. |
+| **M4** | Capture + OCR: **`windows` engine, `vision` escalation (§6.4.1)**, tall-page tiling and overlap de-dup. | The canvas passage is read with ≥95% word accuracy against the known source text; a >8000 px page is tiled and stitched with no duplicated sentences; the two-column trap page triggers escalation to `vision` and is then read correctly; a missing OCR language pack produces the named warning, not garbage. |
 | **M5** | Provider layer with two providers + structured output + usage accounting. | Same task runs end to end on two different providers by changing one setting. |
 | **M6** | Action execution + verification + orchestrator loop with stall detection. | Spark navigates the fixture flow from passage to questions unaided. |
 | **M7** | Grounded question answering with memory. | ≥95% correct on the fixture set via DOM, ≥90% via forced OCR, with citations recorded. |
-| **M8** | Score extraction, target comparison, loop-until-target, all budget guards. | Fixture run stops exactly when the target is reached; separately, a deliberately unreachable target stops cleanly at `max_iterations` with "target not reached". |
+| **M8** | Score extraction (cumulative points), target comparison, loop-until-target via the score-page button, all budget guards. | Fixture run stops on the **first** reading at or above target — with a test proving readings are not summed on top of an already-cumulative score; the continue button is found despite its non-obvious label; a deliberately unreachable target stops cleanly at `max_iterations` with "target not reached"; a score that goes *down* is flagged, not counted as progress. |
 | **M9** | GUI: start/stop, live log, settings, run history, responsive cancel. | Owner can run a task end to end without touching a terminal; Stop reacts within ~2 s. |
 | **M10** | Script record/replay with AI fallback. | A recorded script replays the fixture flow with zero model calls for navigation; breaking a selector triggers fallback and the run still completes. |
 | **M11** | Run reports + retention. | `report.md` is readable and accurate. |
@@ -587,12 +645,33 @@ Do not take these on trust from this document — confirm each against a primary
 
 ---
 
-## 16. Open questions for the owner
+## 16. Requirements confirmed by the owner, and what is still open
 
-Ask these at the first progress report; do not block on them — the defaults above are workable.
+All of §16's original questions have been answered. Recorded here so the reasoning behind the defaults is not lost:
 
-1. **OCR engine default.** The choice was not made explicitly (the answer raised the tall-page problem instead). This spec assumes `vision` for reading and `windows` for geometry. Confirm, or switch to `windows`-first if API cost matters more than accuracy.
-2. **Score semantics.** Is the target a percentage or an absolute number of correct answers, and is the displayed score cumulative across rounds or per round? This changes the comparison logic in §6.10.
-3. **What should happen when the target is not reached** — restart the module, click "Try again", or navigate to a specific URL? (`loop_action` in §9.1.)
-4. **Does the site have a login?** If so, the one-time sign-in into the Spark profile (§2.1) needs to be part of the first-run flow.
-5. **Run artefact retention** — 30 days assumed; screenshots of every step can accumulate quickly.
+| Question | Owner's answer | Where it lands |
+| --- | --- | --- |
+| Score format | **Plain points number**, no visible maximum | §6.10 — compare as points, never derive a percentage |
+| Score behaviour | **Cumulative** across rounds | §6.10 — compare the latest reading; do **not** sum |
+| Next round | **Click a button on the score page** (label unknown) | §6.10 `loop_action`, with label auto-detection and caching |
+| Login | **Yes, account required** | §6.11 — one-time manual sign-in in the Spark profile |
+| Provider | **Gemini** — wants free | §5.1, with free-tier caveats |
+| OCR | **Windows OCR first, AI as backup** | §6.4 + the escalation rule in §6.4.1 |
+| Run artefacts | **Key screenshots + full text log** | §13 — question and score pages only |
+
+### Still genuinely unknown — handle defensively, do not block on them
+
+1. **The continue button's label.** Unknown, so it is auto-detected and cached (§6.10). The fixture site deliberately uses an unobvious label so this path is tested rather than accidentally passing.
+2. **How often the login session expires.** Unknown, so mid-run expiry is treated as possible: detect the login wall, pause, prompt, resume (§6.11). Never fail obscurely, never attempt to log in.
+3. **The points target value.** Goes in the task file (`stop.score_target`) — the owner sets it per task; no default is meaningful.
+4. **Whether the passage is genuinely unreadable from the DOM.** The owner was unsure, which is why the hybrid exists. **Report the measured answer after the first real run** — the `text_source` field in the run log settles it. If the DOM path works, OCR is a safety net that rarely fires and the free-tier arithmetic gets much easier.
+5. **Run artefact retention.** **[ASSUMPTION]** 30 days, configurable (§12.3). Not raised with the owner; flag it in the first progress report.
+6. **Whether the free tier's limits are sufficient in practice.** Depends on rounds-to-target and escalation rate, both unknown until a real run. Instrument it (§5.1) and report actual call counts rather than predicting them.
+
+### The three places this will most likely go wrong
+
+Stated plainly so they get attention in review, not after a wasted day:
+
+1. **Chrome silently ignoring the debug port** on the default profile (§2.1). Mitigated by the mandatory health check — do not weaken it into a retry loop.
+2. **Reading only the visible viewport** of a page that is taller than the screen (§2.2), producing confident answers from a fraction of the passage.
+3. **Summing an already-cumulative score** (§6.10), which stops the run early and looks like success.
